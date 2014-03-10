@@ -1,0 +1,132 @@
+package engine.agent;
+
+import gui.panels.DisplayPanel;
+
+import java.util.Queue;
+
+import shared.Glass;
+import transducer.TChannel;
+import transducer.TEvent;
+import transducer.TReceiver;
+import transducer.Transducer;
+import engine.agent.Agent;
+
+public class OvenAgent extends Agent implements TReceiver{
+
+	public Transducer transducer;
+	public Queue<Glass> OvenContents;
+	public boolean Running;
+	public gui.panels.DisplayPanel guiDisplayPanel;
+	public int index;
+	public EndConveyorAgent OvenConveyor1;
+	public EndConveyorAgent OvenConveyor2;
+	public boolean ConveyorReady = true;
+	public boolean loading = false;
+	public boolean actionperformed = false;
+	public Glass myglass = null;
+	
+	
+	public OvenAgent(String name) {
+		super(name);
+	}
+
+	public void setOvenAgent(Transducer t, EndConveyorAgent conveyor1, EndConveyorAgent conveyor2, int i, DisplayPanel dPanel) {
+		// TODO Auto-generated method stub
+		transducer = t;
+		t.register(this, TChannel.ALL_AGENTS);
+		t.register(this, TChannel.OVEN);
+		OvenConveyor1 = conveyor1;
+		OvenConveyor2 = conveyor2;
+		this.index = i;
+		guiDisplayPanel = dPanel;
+		ConveyorReady = true;
+		conveyor1.msgTruckReadyForGlass();
+	}
+	
+	public void msgHereIsGlass(Glass g){
+		loading = true;
+		myglass = g;
+		print("received glass!");
+		//Object[] args = new Object[1];
+		//args[0] = g.getGuiGlass();
+		//transducer.fireEvent(TChannel.OVEN, TEvent.WORKSTATION_DO_LOAD_GLASS, args);
+		//print("Loading Glass!");
+		//actionperformed = false;
+		//stateChanged();
+	}
+	
+	public void msgDoneLoading(){
+		loading = false;
+		//@Brooke removing GUIGlass references
+		//Object[] args = new Object[1];
+		//args[0] = myglass.getGuiGlass();
+		transducer.fireEvent(TChannel.OVEN, TEvent.WORKSTATION_DO_ACTION, null);
+		print("Doing Action!");
+		//stateChanged();
+	}
+	
+	public void msgDoneWithAction(){
+		actionperformed = true;
+		//Object[] args = new Object[0];
+		transducer.fireEvent(TChannel.OVEN, TEvent.WORKSTATION_RELEASE_GLASS, null);
+		print("Releasing Glass!");
+		OvenConveyor2.msgHereIsGlass(myglass);
+		myglass = null;
+		OvenConveyor1.msgTruckReadyForGlass();
+		//stateChanged();
+	}
+	
+	public void msgConveyorNotReadyForGlass(){
+		ConveyorReady = false;
+		stateChanged();
+	}
+	public void msgConveyorReadyForGlass() {
+		ConveyorReady = true;
+		stateChanged();
+	}
+
+
+	@Override
+	public boolean pickAndExecuteAnAction() {
+		/*if(myglass!=null && loading == true){
+			Object[] args = new Object[0];
+			transducer.fireEvent(TChannel.OVEN, TEvent.WORKSTATION_DO_LOAD_GLASS, args);
+			print("Loading Glass!");
+			actionperformed = false;
+			return false;
+		}
+		if(loading==false && myglass!=null && actionperformed==false){
+			Object[] args = new Object[0];
+			transducer.fireEvent(TChannel.OVEN, TEvent.WORKSTATION_DO_ACTION, args);
+			print("Doing Action!");
+			return false;
+		}
+		if(actionperformed == true && myglass!=null && ConveyorReady){
+			Object[] args = new Object[0];
+			transducer.fireEvent(TChannel.OVEN, TEvent.WORKSTATION_RELEASE_GLASS, args);
+			print("Releasing Glass!");
+			OvenConveyor2.msgHereIsGlass(myglass);
+			myglass = null;
+			OvenConveyor1.msgPopupReadyForGlass();
+		}*/
+		return false;
+	}
+	
+
+
+
+	@Override
+	public void eventFired(TChannel channel, TEvent event, Object[] args) {
+		// TODO Auto-generated method stub
+		if(channel==TChannel.OVEN){
+			if(event==TEvent.WORKSTATION_LOAD_FINISHED && loading && myglass!=null) this.msgDoneLoading();
+			if(event==TEvent.WORKSTATION_GUI_ACTION_FINISHED && myglass!=null) this.msgDoneWithAction();
+		}
+	}
+
+	
+	
+	
+	
+
+}

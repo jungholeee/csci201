@@ -1,0 +1,139 @@
+package engine.agent;
+
+import java.util.ArrayDeque;
+import java.util.Queue;
+
+import shared.Glass;
+import transducer.TChannel;
+import transducer.TEvent;
+import transducer.TReceiver;
+import transducer.Transducer;
+
+import engine.agent.Agent;
+
+public class EndConveyorAgent extends Agent implements TReceiver{
+	
+	public boolean Running;
+	public boolean EntrySensor;
+	public boolean PrePopupSensor;
+	public boolean PreComponentKnowsImFull;
+	public boolean PopupReady;
+	public ShuttleAgent shuttle; //pre-component for conveyor13
+	public OvenAgent oven; //pre-component for conveyor14
+	public Transducer transducer;
+	public EndPopupAgent myPopup;
+	public Queue<Glass> ConveyorContents;
+	public gui.panels.DisplayPanel guiDisplayPanel;
+	public int index;
+	
+	// for main
+	public EndConveyorAgent(String name){
+		super(name);
+		Running = false;
+		EntrySensor = false;
+		PrePopupSensor = false;
+		PreComponentKnowsImFull = false;
+		ConveyorContents = new ArrayDeque<Glass>();		
+	}
+	// for main
+	public void setEndConveyorAgent (Transducer t, EndPopupAgent popup, ShuttleAgent sh, OvenAgent o, int ind, gui.panels.DisplayPanel gdp){
+		myPopup = popup;
+		transducer = t;
+		t.register(this, TChannel.ALL_AGENTS);
+		this.index = ind;
+		this.guiDisplayPanel = gdp;
+		this.shuttle = sh;
+		this.oven = o;
+		if(shuttle!=null) shuttle.msgConveyorReady();
+		PopupReady = true;
+	}
+
+	
+	
+	// for JUnit test
+	public EndConveyorAgent(Transducer t, EndPopupAgent popup){
+		Running = false;
+		EntrySensor = false;
+		PrePopupSensor = false;
+		PreComponentKnowsImFull = false;
+		ConveyorContents = new ArrayDeque<Glass>();
+		transducer = t;
+		t.register(this, TChannel.ALL_AGENTS);
+		
+		myPopup = popup;
+	}
+
+	@Override
+	public boolean pickAndExecuteAnAction() {
+		if(Running && (!PopupReady && PrePopupSensor)) StopConveyor();
+		if(!Running && (PopupReady|| !PrePopupSensor)) StartConveyor();
+		if(Running && PopupReady && PrePopupSensor){
+			if(shuttle!=null) oven.msgHereIsGlass(ConveyorContents.poll());
+			if(shuttle==null) myPopup.msgHereIsGlass(ConveyorContents.poll());
+		}
+		return false;
+	}
+	
+	
+	public void msgHereIsGlass(Glass g){ //From Shuttle
+ 	   ConveyorContents.add(g);
+ 	   if(shuttle==null){
+ 		   oven.msgConveyorNotReadyForGlass();
+ 		   this.print("Received Glass from Oven");
+ 	   }
+ 	   if(shuttle!=null) this.print("Received Glass from Shuttle");
+ 	  stateChanged();
+	}
+
+	public void msgGlassOnEntrySensor(){ //From TruckEntrySensor
+		EntrySensor = true;
+		stateChanged();
+		print("Entry Sensor activated");
+	}
+
+	public void msgGlassOffEntrySensor(){ //From TruckEntrySensor
+   		EntrySensor = false;
+   		if(shuttle==null) oven.msgConveyorReadyForGlass();
+   		if(shuttle!=null) shuttle.msgConveyorReady();
+    	stateChanged();
+    	print("Entry Sensor deactivated");
+	}
+
+	public void msgGlassOnPrePopupSensor(){ //From TruckPrePopupSensor
+		PrePopupSensor = true;
+    	stateChanged();
+    	print("PrePopup Sensor activated");
+	}
+
+	public void msgGlassOffPrePopupSensor(){ //From TruckPrePopupSensor
+    	PrePopupSensor = false;
+    	stateChanged();
+    	print("PrePopup Sensor deactivated");
+	}
+
+	public void msgPopupReadyForGlass(){ //From TruckPopup
+    	PopupReady = true;
+    	stateChanged();
+    	print("Popup ready");
+	}
+	
+	public void StartConveyor(){
+		Running = true;
+		Object[] args = new Object[1];
+		args[0] = index;
+		transducer.fireEvent(TChannel.CONVEYOR, TEvent.CONVEYOR_DO_START, args);
+		print("Conveyor starting");
+	}
+	public void StopConveyor(){
+		Running = false;
+		Object[] args = new Object[1];
+		args[0] = index;
+		transducer.fireEvent(TChannel.CONVEYOR, TEvent.CONVEYOR_DO_STOP, args);
+		print("Conveyor stopping");
+	}
+	@Override
+	public void eventFired(TChannel channel, TEvent event, Object[] args) {
+		// TODO Auto-generated method stub
+		
+	}
+}

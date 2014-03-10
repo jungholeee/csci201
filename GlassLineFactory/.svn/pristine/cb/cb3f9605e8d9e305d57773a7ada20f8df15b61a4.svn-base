@@ -1,0 +1,86 @@
+package engine.agent;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import shared.Glass;
+import transducer.TChannel;
+import transducer.TEvent;
+import transducer.TReceiver;
+import transducer.Transducer;
+
+import engine.agent.Agent;
+
+public class EndTruckAgent extends Agent implements TReceiver{
+	
+	public boolean OutForDelivery = false;
+	public Transducer transducer;
+	public List<Glass> TruckLoad;
+	public int maxTruckLoad = 3;
+	public EndConveyorAgent conveyor;
+	public gui.panels.DisplayPanel guiDisplayPanel;
+	public int index;
+	
+	// for main
+	public EndTruckAgent(String name){
+		super(name);
+		TruckLoad = new ArrayList<Glass>();
+	}
+	// for main
+	public void setEndTruckAgent(Transducer t, EndConveyorAgent tr, int ind, gui.panels.DisplayPanel gdp){
+		transducer = t;
+		t.register(this, TChannel.ALL_AGENTS);
+		t.register(this, TChannel.TRUCK);
+		conveyor = tr;
+		this.index = ind;
+		this.guiDisplayPanel = gdp;
+	}
+	// for JUnit test
+	public EndTruckAgent(Transducer t, EndConveyorAgent tr){
+		TruckLoad = new ArrayList<Glass>();
+		conveyor = tr;
+		transducer = t;
+		t.register(this, TChannel.ALL_AGENTS);
+		t.register(this, TChannel.TRUCK);
+	}
+	
+	public synchronized void msgHereIsGlass(Glass g){ //From Conveyor
+    	TruckLoad.add(g);
+    	print("Received glass from Conveyor, " + g.getName() + "; new size: " + TruckLoad.size());
+    	stateChanged();
+	}
+	
+	public synchronized void DeliverLoad(){
+	    conveyor.msgTruckOutForDelivery();
+	    TruckLoad.clear();
+	    Object[] args = new Object[1];
+	    args[0] = index;
+	    transducer.fireEvent(TChannel.TRUCK, TEvent.TRUCK_DO_EMPTY, args);
+	    OutForDelivery = true;
+	}
+
+	@Override
+	public boolean pickAndExecuteAnAction() {
+		if(TruckLoad.size()>0){
+			if(TruckLoad.size()>=maxTruckLoad) conveyor.msgTruckOutForDelivery();
+			Object[] args = new Object[1];
+			args[0] = TruckLoad.get(TruckLoad.size()-1);
+			transducer.fireEvent(TChannel.TRUCK, TEvent.TRUCK_DO_LOAD_GLASS, args);
+		}
+		return false;
+	}
+	@Override
+	public void eventFired(TChannel channel, TEvent event, Object[] args) {
+		if(channel==TChannel.TRUCK){
+			if(event==TEvent.TRUCK_GUI_LOAD_FINISHED){
+				if(TruckLoad.size()>=maxTruckLoad) DeliverLoad();
+				conveyor.msgTruckReadyForGlass();
+			}
+			if(event==TEvent.TRUCK_GUI_EMPTY_FINISHED){
+				print("Empty finished, new size: " + TruckLoad.size());
+				OutForDelivery = false;
+				conveyor.msgTruckReturned();
+			}
+		}
+	}
+}

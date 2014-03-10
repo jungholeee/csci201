@@ -1,0 +1,298 @@
+package engine.agent;
+
+import engine.agent.Agent;
+
+import transducer.*;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+import interfaces.IGlassLineAgent;
+
+import shared.*;
+import shared.enums.ComponentOperations;
+
+
+public class RobotAgentDJ extends Agent implements TReceiver, IGlassLineAgent {
+	
+	/*
+	 * 	{ {=============================================} }
+	 * 	{ {												} }
+	 * 	{ {			DATA								} }
+	 * 	{ {												} }
+	 * 	{ {=============================================} }
+	 */
+	
+	String 		name;
+	static int	numberOfRobots = 0;
+	public int	robotID;
+	
+	enum State 	{BUSY, IDLE, PICKING_UP, PLACING, WAITING, IDLE_NOTIFY};
+	State 		WorkerState;
+	
+	enum Event {POPUP_PICKUP, WORKSTATION_PICKUP, PLACE_GLASS};
+	ArrayList<Event> eventQueue = new ArrayList<Event>();
+	
+	private Transducer myTransducer;
+	private TChannel myChannel;
+	
+	PopupAgentDJ 	popup;
+	
+	private class MyWorkstation{
+		ComponentOperations	type;
+		Glass 				glass;
+		
+		MyWorkstation(ComponentOperations cop) {
+			type = cop;
+		}
+	}
+	MyWorkstation 		workStation;
+	boolean 			stationOpen;
+	
+	ArrayList<Glass> glassQueue = new ArrayList<Glass>();
+	Object[] robotargs = new Object[1];
+
+	/*
+	 * 	{ {=============================================} }
+	 * 	{ {												} }
+	 * 	{ {			CONSTRUCTORS						} }
+	 * 	{ {												} }
+	 * 	{ {=============================================} }
+	 */
+	
+	public RobotAgentDJ(String n, ComponentOperations cop){
+		if (n.equals("DEFAULT"))
+			name = "Workstation Robot Agent";
+		else{
+			name = n;
+		}
+		
+		workStation = new MyWorkstation(cop);
+		WorkerState = State.IDLE;
+		stationOpen = true;
+		
+		robotID = numberOfRobots%2;
+		robotargs[0] = robotID;
+		numberOfRobots++;
+	}
+	
+	
+	/*
+	 * 	{ {=============================================} }
+	 * 	{ {												} }
+	 * 	{ {			MESSAGES							} }
+	 * 	{ {												} }
+	 * 	{ {=============================================} }
+	 */
+	
+	public void msgHereIsGlass(IGlassLineAgent p, Glass g){
+		print("Received msgHereIsGlass from: " + p.getName() + " for piece: " + g.toString());
+		if(p instanceof PopupAgentDJ){
+			glassQueue.add(g);
+			eventQueue.add(Event.POPUP_PICKUP);
+		}
+		stateChanged();
+	}
+	
+	public void msgGotGlass(IGlassLineAgent r, Glass g){
+		print("Received msgGotGlass for piece: " + g.toString() + " from " + r.getName());
+		WorkerState = State.IDLE;
+		myTransducer.fireEvent(myChannel, TEvent.WORKSTATION_RELEASE_GLASS, robotargs);
+		eventQueue.add(Event.PLACE_GLASS);
+		stateChanged();
+	}
+	
+	public void msgGetGlass() { //after this glass has been denied, now the robot will place glass
+		print("Received msgGetGlass from POPUP");
+		WorkerState = State.BUSY;
+		eventQueue.add(Event.WORKSTATION_PICKUP);
+		stateChanged();
+	}
+
+	public void msgWaitToSendGlass(Glass g) {
+		print("Received msgWaitToSendGlass for piece: " + g.toString());
+		WorkerState = State.WAITING;
+		stateChanged();
+	}
+	
+	
+	/*
+	 * 	{ {=============================================} }
+	 * 	{ {												} }
+	 * 	{ {			TRANSDUCER (GUI)					} }
+	 * 	{ {												} }
+	 * 	{ {=============================================} }
+	 */
+	
+	@Override
+	public void eventFired(TChannel channel, TEvent event, Object[] args) {	
+		// correct sensor
+		if(event == TEvent.WORKSTATION_GUI_ACTION_FINISHED)
+		{
+			if((Integer)args[0] == robotID) {
+				eventQueue.add(Event.WORKSTATION_PICKUP);
+				stateChanged();	
+				return;
+			}
+		}
+		if(event == TEvent.WORKSTATION_LOAD_FINISHED)
+		{
+			if((Integer)args[0] == robotID) {
+				WorkerState = State.BUSY;
+				myTransducer.fireEvent(myChannel, TEvent.WORKSTATION_DO_ACTION, robotargs);
+				stateChanged();
+				return;
+			}
+		}
+		if(event == TEvent.WORKSTATION_RELEASE_FINISHED) {
+			if((Integer)args[0] == robotID) {
+				WorkerState = State.IDLE_NOTIFY;
+				stateChanged();
+				return;
+			}
+		}
+	}
+	
+	/*
+	 * 	{ {=============================================} }
+	 * 	{ {												} }
+	 * 	{ {			SCHEDULER							} }
+	 * 	{ {												} }
+	 * 	{ {=============================================} }
+	 */
+	
+	public boolean pickAndExecuteAnAction(){
+		if(WorkerState == State.IDLE_NOTIFY) {
+			notifyPopup();
+			return true;
+		}
+		if(eventQueue.isEmpty()) {
+			return false;
+		}
+		
+		// Pop first event in the eventQueue to process
+		Event e = eventQueue.remove(0);
+		print(e.toString());
+		
+		if (e == Event.PLACE_GLASS){
+			WorkerState = State.PLACING;
+			placeGlass();
+			return true;
+		}
+		
+		if(WorkerState == State.BUSY){
+			if (e == Event.WORKSTATION_PICKUP){
+				pickUpFromWorkStation();
+				return true;
+			}
+		}
+		if(WorkerState == State.IDLE){
+			if (e == Event.POPUP_PICKUP){
+				pickUpFromPopup(glassQueue.get(0));
+				return true;
+			}
+		}
+		return false;
+	}
+	
+	/*
+	 * 	{ {=============================================} }
+	 * 	{ {												} }
+	 * 	{ {			ACTIONS								} }
+	 * 	{ {												} }
+	 * 	{ {=============================================} }
+	 */
+	
+	private void pickUpFromPopup(Glass g) {
+		print("Picking piece: " + g.toString() + " up from POPUP");
+		popup.msgWorkstationFull(this);
+		myTransducer.fireEvent(myChannel, TEvent.WORKSTATION_DO_LOAD_GLASS, robotargs);
+		WorkerState = State.PICKING_UP;
+		popup.msgGotGlass(this, g);
+		workStation.glass = g;
+		stationOpen = false;
+		stateChanged();
+	}
+	
+	private void pickUpFromWorkStation() {
+		print("Attempting to send piece: " + workStation.glass.toString() + " to POPUP");
+		stationOpen = true;
+		popup.msgHereIsGlass(this, workStation.glass);
+		stateChanged();
+	}
+	
+	private void placeGlass() {
+		print("Removing piece: " + workStation.glass.toString() + " from glassQueue");
+		glassQueue.remove(workStation.glass);
+		stateChanged();
+	}
+	
+	private void notifyPopup() {
+		popup.msgWorkstationIdle(this); 
+		WorkerState = State.IDLE;
+		stateChanged();
+	}
+	
+	/*
+	 * 	{ {=============================================} }
+	 * 	{ {												} }
+	 * 	{ {			GUI									} }
+	 * 	{ {												} }
+	 * 	{ {=============================================} }
+	 */
+	
+	public boolean isBusy(){
+		if(WorkerState==State.BUSY)
+			return true;
+		else
+			return false;	
+	}
+	
+	public boolean hasGlass() {
+		if(glassQueue.isEmpty()) {
+			return false;
+		}
+		else {
+			return true;
+		}
+	}
+	
+	public String getName() {
+		return name;
+	}
+	
+	public int getID() {
+		return this.robotID;
+	}
+	
+	public void setPopup(PopupAgentDJ p){
+		popup = p;
+	}	
+	
+	public void setTransducer(Transducer t){
+		myTransducer = t;
+		myTransducer.register(this, TChannel.ALL_AGENTS);
+		myTransducer.register(this, TChannel.CONTROL_PANEL);
+		
+		if (workStation.type == ComponentOperations.CROSSSEAMER)
+			myChannel = TChannel.CROSS_SEAMER;
+		else if(workStation.type == ComponentOperations.GRINDER)
+			myChannel = TChannel.GRINDER;
+		else if(workStation.type == ComponentOperations.DRILL)
+			myChannel = TChannel.DRILL;
+		myTransducer.register(this, myChannel);
+	}
+	
+	/*
+	*		{ {=============================================} }
+	*		{ {												} }
+	*		{ {			INTEGRATION MESSAGES				} }
+	*		{ {												} }
+	*		{ {=============================================} }
+	*/
+	
+	// Unused.  Implemented to support integration with ShuttleAgent
+	// (Modified IGlassLineAgent interface)
+	public void msgConveyorReady() {}
+}

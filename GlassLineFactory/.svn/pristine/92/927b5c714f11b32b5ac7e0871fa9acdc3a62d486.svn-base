@@ -1,0 +1,30 @@
+Authors: Cameron McClees and Brooke Hubert
+Factory Segment: Start of Factory - stock pile robot to shuttle popup
+
+Compiling and running the main function:
+	We wrote our code in eclipse, so if you open the project with eclipse, it will compile.
+	Run RunStartOfFactory.java.
+	
+	If you don't have eclipse, to run the main function, you will need to compile everything in
+	the MockAnimations, AgentBase, Interfaces, and Transducer packages before running
+	RunStartOfFactory.java.
+	
+Unit Tests:
+	The unit tests handle one piece of glass interacting with the agents.
+	
+Main:
+	ONE PIECE (RunStartOfFactoryOnePiece):
+	The main function in RunStartOfFactoryOnePiece.java gives one piece of glass to the stock pile robot.
+This glass will run through the factory until it is passed off to a mocked shuttle
+agent.  This movement through the factory is simulated by print statements.
+	
+	TWO PIECES (RunStartOfFactoryTwoPieces):
+	The main function in RunStartOfFactoryTwoPieces.java gives two pieces of glass to the stock pile robot.
+These two pieces of glass will run through the factory until they are passed off to a mocked shuttle
+agent.  This movement through the factory is simulated by print statements.
+
+	The main function has simulated calls from the GUI for the glass reaching the pre-popup sensor.
+This is controlled by timers, so please allow a minute for the program to run so the timers will
+complete.  The timers are long enough our computers to simulate the glass traveling on the conveyor;
+however, if you notice the glass is reaching the prepopup sensor before it's on the conveyor, please
+go into the RunStartOfFactory.java file and increase the delay time on the timertasks in lines 60 and 62.

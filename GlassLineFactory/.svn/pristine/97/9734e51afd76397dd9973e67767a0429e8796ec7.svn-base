@@ -1,0 +1,406 @@
+
+package gui.panels;
+import gui.drivers.FactoryFrame;
+import javax.swing.BoxLayout;
+import javax.swing.JPanel;
+
+import shared.enums.ComponentOperations;
+import transducer.TChannel;
+import transducer.Transducer;
+import engine.agent.*;
+
+/**
+ * The FactoryPanel is highest level panel in the actual kitting cell. The
+ * FactoryPanel makes all the back end components, connects them to the
+ * GuiComponents in the DisplayPanel. It is responsible for handing
+ * communication between the back and front end.
+ */
+@SuppressWarnings("serial")
+public class FactoryPanel extends JPanel
+{
+	/** The frame connected to the FactoryPanel */
+	private FactoryFrame parent;
+
+	/** The control system for the factory, displayed on right */
+	private ControlPanel cPanel;
+
+	/** The graphical representation for the factory, displayed on left */
+	private DisplayPanel dPanel;
+
+	/** Allows the control panel to communicate with the back end and give commands */
+	private Transducer transducer;
+	
+	/*
+	 * 	{ {=============================================} }
+	 * 	{ {												} }
+	 * 	{ {			AGENT INSTANTIATION	BC				} }
+	 * 	{ {												} }
+	 * 	{ {=============================================} }
+	 */
+	
+	private StockPileRobotAgent stockPileRobot;
+	private NCCutConveyorAgent conveyor0;
+	private CutterAgent cutter;
+	private NCCutConveyorAgent conveyor1;
+	private ShuttleAgent shuttle1;
+	private ConveyorAgentJT conveyor2;
+	private ConveyorWorkstationJT breakOut;
+	private ConveyorAgentJT conveyor3;
+	private ConveyorWorkstationJT manualBreakOut;
+	private ConveyorAgentJT conveyor4;
+	private ShuttleAgent shuttle2;
+	private ConveyorAgentDJ conveyor5;
+	private ConveyorAgentDJ conveyor6;
+	private ConveyorAgentDJ conveyor7;
+	private ConveyorAgentJT conveyor8;
+	private PopupAgentDJ popup0 = new PopupAgentDJ("Popup0");
+	private PopupAgentDJ popup1 = new PopupAgentDJ("Popup1");
+	private PopupAgentDJ popup2 = new PopupAgentDJ("Popup2");
+	public RobotAgentDJ robotd1 = new RobotAgentDJ("Drill Robot 0", ComponentOperations.DRILL);
+	public RobotAgentDJ robotd2 = new RobotAgentDJ("Drill Robot 1", ComponentOperations.DRILL);
+	public RobotAgentDJ robotc1 = new RobotAgentDJ("Cross-Seamer Robot 0", ComponentOperations.CROSSSEAMER);
+	public RobotAgentDJ robotc2 = new RobotAgentDJ("Cross-Seamer Robot 1", ComponentOperations.CROSSSEAMER);
+	public RobotAgentDJ robotg1 = new RobotAgentDJ("Grinder Robot 0", ComponentOperations.GRINDER);
+	public RobotAgentDJ robotg2 = new RobotAgentDJ("Grinder Robot 1", ComponentOperations.GRINDER);
+	private ShuttleAgent shuttle3;
+	private ConveyorWorkstationJT washer;
+	private ConveyorAgentJT conveyor9;
+	private ConveyorAgentJT conveyor10;
+	private ConveyorWorkstationJT painter;
+	private ConveyorAgentJT conveyor11;
+	private ConveyorWorkstationJT uvlamp;
+	private ConveyorAgentJT conveyor12;
+	private ShuttleAgent shuttle4;
+	//TEMP conveyor, JUSTIN swap this with your conveyor
+	//private ConveyorAgentJT conveyor13;
+	
+	//EndFactory agents added
+	private EndConveyorAgent conveyor13 = new EndConveyorAgent("conveyor13");
+	private EndConveyorAgent conveyor14 = new EndConveyorAgent("conveyor14");
+	/*private EndPopupAgent popupEnd = new EndPopupAgent("truckpopup");*/
+	//private EndRobotAgent truckRobot = new EndRobotAgent("truck robot");
+	private EndSensorEntryAgent endSensor0 = new EndSensorEntryAgent("endSensorEntry");
+	private EndSensorPreOvenAgent endSensor1 = new EndSensorPreOvenAgent("endSensorPreOven");
+	private EndSensorPostOvenAgent endSensor2 = new EndSensorPostOvenAgent("endSensorPostOven");
+	private EndSensorPrePopupAgent endSensor3 = new EndSensorPrePopupAgent("endSensorPrePopup");
+	private EndTruckAgent truck = new EndTruckAgent("truck");
+	private OvenAgent oven = new OvenAgent("oven");
+	
+	/**
+	 * Constructor links this panel to its frame
+	 */
+	public FactoryPanel(FactoryFrame fFrame)
+	{
+		parent = fFrame;
+
+		// initialize transducer
+		transducer = new Transducer();
+		transducer.startTransducer();
+
+		// use default layout
+		// dPanel = new DisplayPanel(this);
+		// dPanel.setDefaultLayout();
+		// dPanel.setTimerListeners();
+
+		// initialize and run
+		this.initialize();
+		this.initializeBackEnd();
+	}
+
+	/**
+	 * Initializes all elements of the front end, including the panels, and lays
+	 * them out
+	 */
+	private void initialize()
+	{
+		this.setLayout(new BoxLayout(this, BoxLayout.X_AXIS));
+
+		// initialize control panel
+		cPanel = new ControlPanel(this, transducer);
+
+		// initialize display panel
+		dPanel = new DisplayPanel(this, transducer);
+
+		// add panels in
+		// JPanel tempPanel = new JPanel();
+		// tempPanel.setPreferredSize(new Dimension(830, 880));
+		// this.add(tempPanel);
+
+		this.add(dPanel);
+		this.add(cPanel);
+	}
+
+	/**
+	 * Feel free to use this method to start all the Agent threads at the same time
+	 */
+	private void initializeBackEnd()
+	{
+		// ===========================================================================
+		// TODO initialize and start Agent threads here
+		// ===========================================================================
+		
+		stockPileRobot = new StockPileRobotAgent(transducer, "CMBH Stock Pile Robot");
+		
+		//Create Shuttle
+		shuttle1 = new ShuttleAgent("Shuttle1");
+		shuttle2 = new ShuttleAgent("Shuttle2");
+		shuttle3 = new ShuttleAgent("Shuttle3");
+		shuttle4 = new ShuttleAgent("Shuttle4");
+		
+		//Workstations
+		cutter = new CutterAgent(transducer, "Cutter");
+		breakOut = new ConveyorWorkstationJT(transducer, "Breakout", TChannel.BREAKOUT);
+		manualBreakOut = new ConveyorWorkstationJT(transducer, "ManualBreakout", TChannel.MANUAL_BREAKOUT);
+		
+		//ADDED BY JY SPONGEBOB
+		washer = new ConveyorWorkstationJT(transducer, "Washer", TChannel.WASHER);
+		painter = new ConveyorWorkstationJT(transducer, "Painter", TChannel.PAINTER);
+		uvlamp = new ConveyorWorkstationJT(transducer, "UVLamp", TChannel.UV_LAMP);
+		
+		//BC conveyors & start conveyors
+		conveyor0 = new NCCutConveyorAgent(transducer, dPanel, "Conveyor0");
+		conveyor1 = new NCCutConveyorAgent(transducer, dPanel, "Conveyor1");
+		
+		//JT conveyors & left side conveyors
+		conveyor2 = new ConveyorAgentJT(transducer, "Conveyor2", 2, 4, 5);
+		conveyor3 = new ConveyorAgentJT(transducer, "Conveyor3", 3, 6, 7);
+		conveyor4 = new ConveyorAgentJT(transducer, "Conveyor4", 4, 8, 9);
+		conveyor8 = new ConveyorAgentJT(transducer, "Conveyor8", 8, 16, 17);
+		conveyor9 = new ConveyorAgentJT(transducer, "Conveyor9", 9, 18, 19);
+		conveyor10 = new ConveyorAgentJT(transducer, "Conveyor10", 10, 20, 21);
+		conveyor11 = new ConveyorAgentJT(transducer, "Conveyor11", 11, 22, 23);
+		conveyor12 = new ConveyorAgentJT(transducer, "Conveyor12", 12, 24, 25);
+		//conveyor13 = new ConveyorAgentJT(transducer, "Conveyor12", 13, 26, 27);
+		
+		//DJ conveyor
+		conveyor5 = new ConveyorAgentDJ("Conveyor5", 5);
+		conveyor6 = new ConveyorAgentDJ("Conveyor6", 6);
+		conveyor7 = new ConveyorAgentDJ("Conveyor7", 7);
+		
+		
+		
+		//Set JT agent references
+		shuttle1.setPrevComponent(conveyor1);
+		shuttle1.setNextComponent(conveyor2);
+		conveyor2.setPrevComponent(shuttle1);
+		conveyor2.setNextComponent(breakOut);
+		breakOut.setPrevConveyor(conveyor2);
+		breakOut.setNextConveyor(conveyor3);
+		conveyor3.setPrevComponent(breakOut);
+		conveyor3.setNextComponent(manualBreakOut);
+		manualBreakOut.setPrevConveyor(conveyor3);
+		manualBreakOut.setNextConveyor(conveyor4);
+		conveyor4.setPrevComponent(manualBreakOut);
+		conveyor4.setNextComponent(shuttle2);
+		shuttle2.setPrevComponent(conveyor4);
+		shuttle2.setNextComponent(conveyor5);
+		shuttle3.setPrevComponent(conveyor9);
+		shuttle3.setNextComponent(conveyor10);
+		
+		
+		//Set BC references
+		conveyor0.setMyIndex(0);
+		conveyor0.setEntryAgent(stockPileRobot);
+		conveyor0.setEntrySensorIndex(0);
+		conveyor0.setExitAgent(cutter);
+		conveyor0.setExitSensorIndex(1);
+		conveyor1.setMyIndex(1);
+		conveyor1.setEntryAgent(cutter);
+		conveyor1.setEntrySensorIndex(2);
+		conveyor1.setExitAgent(shuttle1);
+		conveyor1.setExitSensorIndex(3);
+		conveyor1.setShuttleExitSensorIndex(4);
+		cutter.setConveyors(conveyor0, conveyor1);
+		stockPileRobot.setConveyor(conveyor0);
+		
+		//ADDED BY JY SPONGEBOB
+		conveyor8.setPrevComponent(popup2);
+		conveyor8.setNextComponent(washer);
+		washer.setPrevConveyor(conveyor8);
+		washer.setNextConveyor(conveyor9);
+		conveyor9.setPrevComponent(washer);
+		conveyor9.setNextComponent(shuttle3);
+		conveyor10.setPrevComponent(shuttle3);
+		conveyor10.setNextComponent(painter);
+		painter.setPrevConveyor(conveyor10);
+		painter.setNextConveyor(conveyor11);
+		conveyor11.setPrevComponent(painter);
+		conveyor11.setNextComponent(uvlamp);
+		uvlamp.setPrevConveyor(conveyor11);
+		uvlamp.setNextConveyor(conveyor12);
+		conveyor12.setPrevComponent(uvlamp);
+		conveyor12.setNextComponent(shuttle4);
+		shuttle4.setPrevComponent(conveyor12);
+		shuttle4.setNextComponent(conveyor13);
+		//conveyor13.setPrevComponent(shuttle4);
+		
+		//Set DJ conveyors
+		conveyor5.setTransducer(transducer);
+		conveyor5.setNextAgent(popup0);
+		conveyor5.setShuttleAgent(shuttle2);
+		
+		conveyor6.setTransducer(transducer);
+		conveyor6.setPreviousAgent(popup0);
+		conveyor6.setNextAgent(popup1);
+		
+		conveyor7.setTransducer(transducer);
+		conveyor7.setPreviousAgent(popup1);
+		conveyor7.setNextAgent(popup2);
+		
+		// Complete popup initializations for drill
+		popup0.setWorkstationType(ComponentOperations.DRILL);	
+		popup0.setNextAgent(conveyor6);
+		popup0.setTransducer(transducer);
+		
+		// Complete popup initializations for cross seamer
+		popup1.setWorkstationType(ComponentOperations.CROSSSEAMER);	
+		popup1.setNextAgent(conveyor7);
+		popup1.setTransducer(transducer);
+		
+		// Complete popup initializations for grinder
+		popup2.setWorkstationType(ComponentOperations.GRINDER);	
+		popup2.setNextAgent(conveyor8);
+		popup2.setTransducer(transducer);
+		
+		//Set transistors for all robots
+		robotd1.setTransducer(transducer);	
+		robotd2.setTransducer(transducer);
+		
+		robotc1.setTransducer(transducer);
+		robotc2.setTransducer(transducer);
+		
+		robotg1.setTransducer(transducer);
+		robotg2.setTransducer(transducer);
+		
+		// Set appropriate robot agents to each popup
+		popup0.addRobot(robotd1, false);		
+		popup0.addRobot(robotd2, false);
+		
+		popup1.addRobot(robotc1, false);		
+		popup1.addRobot(robotc2, false);
+		
+		popup2.addRobot(robotg1, false);
+		popup2.addRobot(robotg2, false);
+
+		// Set popup agents to each robot
+		robotd1.setPopup(popup0);				
+		robotd2.setPopup(popup0);	// drill
+		
+		robotc1.setPopup(popup1);				
+		robotc2.setPopup(popup1);	// cross seamer
+		
+		robotg1.setPopup(popup2);				
+		robotg2.setPopup(popup2);	// grinder
+		
+		
+		// EndFactory initialization
+		conveyor13.setEndConveyorAgent(transducer, null, shuttle4, oven, 13, dPanel);
+		endSensor0.setEndSensorEntryAgent(transducer, shuttle4, conveyor13, 26, dPanel);
+		endSensor1.setEndSensorPreOvenAgent(transducer, oven, conveyor13, 27, dPanel);
+		oven.setOvenAgent(transducer, conveyor13, conveyor14, -1, dPanel);
+		conveyor14.setEndConveyorAgent(transducer, truck, null, oven, 14, dPanel);
+		endSensor2.setEndSensorPostOvenAgent(transducer, oven, conveyor14, 28, dPanel);
+		endSensor3.setEndSensorPrePopupAgent(transducer, conveyor14, 29, dPanel);
+		/*popupEnd.setEndPopupAgent(transducer, truckRobot, null, conveyor14, -1, dPanel);*/
+		//truckRobot.setEndRobotAgent(transducer, null, truck, conveyor14, -1, dPanel);
+		truck.setEndTruckAgent(transducer, conveyor14, -1, dPanel);
+		
+		
+		
+		
+		// start threads
+		stockPileRobot.startThread();
+		conveyor0.startThread();
+		cutter.startThread();
+		conveyor1.startThread();
+		shuttle1.startThread();
+		conveyor2.startThread();
+		breakOut.startThread();
+		conveyor3.startThread();
+		manualBreakOut.startThread();
+		conveyor4.startThread();
+		shuttle2.startThread();
+		
+		conveyor5.startThread();
+		conveyor6.startThread();
+		conveyor7.startThread();
+		popup0.startThread();
+		popup1.startThread();
+		popup2.startThread();
+		robotd1.startThread();
+		robotd2.startThread();
+		robotc1.startThread();
+		robotc2.startThread();
+		robotg1.startThread();
+		robotg2.startThread();
+		
+		conveyor8.startThread();
+		
+		//ADDED BY JY SPONGEBOB
+		shuttle3.startThread();
+		conveyor9.startThread();
+		washer.startThread();
+		conveyor10.startThread();
+		painter.startThread();
+		conveyor11.startThread();
+		uvlamp.startThread();
+		conveyor12.startThread();
+		shuttle4.startThread();
+		//conveyor13.startThread();
+		
+		//EndFactory
+		conveyor13.startThread();
+		oven.startThread();
+		endSensor0.startThread();
+		endSensor1.startThread();
+		conveyor14.startThread();
+		endSensor2.startThread();
+		endSensor3.startThread();
+		/*popupEnd.startThread();*/
+		//truckRobot.startThread();
+		truck.startThread();
+		
+		
+		
+		
+		
+		
+		System.out.println("Back end initialization finished.");
+	}
+
+	/**
+	 * Returns the parent frame of this panel
+	 * 
+	 * @return the parent frame
+	 */
+	public FactoryFrame getGuiParent()
+	{
+		return parent;
+	}
+
+	/**
+	 * Returns the control panel
+	 * 
+	 * @return the control panel
+	 */
+	public ControlPanel getControlPanel()
+	{
+		return cPanel;
+	}
+
+	/**
+	 * Returns the display panel
+	 * 
+	 * @return the display panel
+	 */
+	public DisplayPanel getDisplayPanel()
+	{
+		return dPanel;
+	}
+	
+	public StockPileRobotAgent getStockPileRobot()
+	{
+		return stockPileRobot;
+	}
+
+}

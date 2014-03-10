@@ -1,0 +1,815 @@
+package engine.agent;
+
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+import interfaces.IGlassLineAgent;
+
+import engine.agent.Agent;
+import shared.*;
+import shared.enums.*;
+import transducer.*;
+
+public class PopupAgentDJ extends Agent implements IGlassLineAgent{
+
+	/*
+	 * 	{ {=============================================} }
+	 * 	{ {												} }
+	 * 	{ {			DATA								} }
+	 * 	{ {												} }
+	 * 	{ {=============================================} }
+	 */
+		
+	String				name;
+	static int			numberOfPopups = 0;
+	public int			popupID;
+	ComponentOperations	myWorkstationType;
+	
+	public enum PopupState	{ MOVING, RAISED, LOWERED, BROKEN, WAITING_FOR_PREV, WAITING_FOR_NEXT, WAITING_OFFLOAD, WAITING_FOR_ROBOT, IDLE };
+	public PopupState		pState, previousState;
+
+	public enum GlassState { QUEUED, ON_HOLD, NEEDS_WORK, ON_POPUP_FOR_WORK, DONE, EXIT,
+		FINISHED, WAITING, WAITING_FOR_WORK, WAITING_DONE, CANT_ACCEPT };
+	class MyGlass {
+		GlassState		state;
+		Glass			glass;
+		IGlassLineAgent	sender;
+
+		MyGlass(Glass g, GlassState sta, IGlassLineAgent gla) {
+			glass = g;
+			state = sta;
+			sender = gla;
+		}
+	}
+
+	List<MyGlass>		myGlass = Collections.synchronizedList(new ArrayList<MyGlass>());
+
+	IGlassLineAgent		nextAgent;
+	
+	class MyRobot {
+		RobotAgentDJ		robot;
+		boolean				busy;
+		
+		MyRobot(RobotAgentDJ r, boolean b) {
+			robot = r;
+			busy = b;
+		}
+	}
+	List<MyRobot>	myRobots = Collections.synchronizedList(new ArrayList<MyRobot>());
+
+	public Sensor	mainSensor = new Sensor();
+	boolean			okayToGoIdle = true, retrieving = false;
+	
+	Transducer 		myTransducer;
+	TChannel		myChannel;
+	Object 			pargs[] = new Object[1];
+	
+	boolean			nextAgentReady = true;
+	
+	/*
+	 * 	{ {=============================================} }
+	 * 	{ {												} }
+	 * 	{ {			CONSTRUCTORS						} }
+	 * 	{ {												} }
+	 * 	{ {=============================================} }
+	 */
+	
+	public PopupAgentDJ(String n) {
+		name = n;
+		pState = PopupState.LOWERED;
+		previousState = PopupState.LOWERED;
+		popupID = numberOfPopups;
+		numberOfPopups++;
+		pargs[0] = popupID;
+	}
+	
+	public PopupAgentDJ(String n, IGlassLineAgent next) {
+		name = n;
+		nextAgent = next;
+		pState = PopupState.LOWERED;
+		previousState = PopupState.LOWERED;
+		popupID = numberOfPopups;
+		numberOfPopups++;
+		pargs[0] = popupID;
+	}
+	
+	/*
+	 * 	{ {=============================================} }
+	 * 	{ {												} }
+	 * 	{ {			MESSAGES							} }
+	 * 	{ {												} }
+	 * 	{ {=============================================} }
+	 */
+
+	/**
+	 * Message sent from previous component or robot that wants to send Glass
+	 * Glass should be added to the list of MyGlass with the appropriate state: NEEDS_WORK, QUEUED,
+	 * DONE, or CANT_ACCEPT
+	 * @param sender
+	 * @param g
+	 */
+	public void msgHereIsGlass(IGlassLineAgent sender, Glass g) {
+		print("Received msgHereIsGlass for piece: " + g.toString() + " from: " + sender.getName() + " in state: " + pState);
+		if(pState == PopupState.WAITING_FOR_PREV && sender instanceof ConveyorAgentDJ) {
+			pState = previousState;
+			synchronized(myGlass) {
+				for(MyGlass mg: myGlass) {
+					if(mg.glass.equals(g) && mg.state == GlassState.WAITING_FOR_WORK) {
+						mg.state = GlassState.NEEDS_WORK;
+						stateChanged();
+						return;
+					}
+				}
+			}
+			stateChanged();
+			return;
+		}
+		
+		if(pState == PopupState.WAITING_FOR_ROBOT && sender instanceof RobotAgentDJ) {
+			pState = previousState;
+		}
+		
+		if(sender instanceof ConveyorAgentDJ && g.getOperationsToPerform().contains(myWorkstationType)) {
+			// If the glass piece must go to the workstation, check that a station is available
+			synchronized(myRobots) {
+				for(MyRobot r:myRobots) {
+					if(!r.busy) {
+						//print("Found a robot that isn't busy and adding NEEDS_WORK to myGlass, with state now: "+pState);
+						myGlass.add(new MyGlass(g, GlassState.NEEDS_WORK, sender));
+						stateChanged();
+						return;
+					}
+				}
+			}
+			// Need to work on glass, but all stations are busy
+			myGlass.add(new MyGlass(g, GlassState.CANT_ACCEPT, sender));
+			stateChanged();
+			return;
+		}
+		
+		// If the glass piece does not need to be worked on at this station, queue it and get ready to send it
+		if(sender instanceof ConveyorAgentDJ && !g.getOperationsToPerform().contains(myWorkstationType)) {
+			//print("Adding " + g.toString() +" with QUEUED state to pass through");
+			myGlass.add(new MyGlass(g, GlassState.QUEUED, sender));
+			stateChanged();
+			return;
+		}
+		
+		// If the glass piece is being received from the worker
+		if(sender instanceof RobotAgentDJ) {
+			myGlass.add(new MyGlass(g, GlassState.DONE, sender));
+			stateChanged();
+			return;
+		}
+	}
+
+	/**
+	 * Message received from next component or robot/workstation when it has received the Glass piece
+	 * This triggers the GUIPopup animation to release the Glass onto the next GUI component
+	 * and changes the Glass's state to FINISHED so it will be removed on the next scheduler call
+	 * @param g
+	 */
+	public void msgGotGlass(IGlassLineAgent rec, Glass g) {		
+		print("Received msgGotGlass for piece: " + g.toString() + " out of total pieces left: " + myGlass.size());
+		/*for(MyGlass mg: myGlass) {
+			System.out.println("\t" + mg.glass.toString() + " with state: " + mg.state);
+		}*/
+		if(pState == PopupState.WAITING_FOR_NEXT && rec.equals(nextAgent)
+				|| pState == PopupState.WAITING_FOR_ROBOT && rec instanceof RobotAgentDJ){
+			pState = previousState;
+		}
+		synchronized(myGlass) {
+			for(MyGlass mg:myGlass) {
+				if(mg.glass.equals(g)) {
+					if(pState == PopupState.LOWERED && mg.state == GlassState.EXIT) {
+						myTransducer.fireEvent(TChannel.POPUP, TEvent.POPUP_RELEASE_GLASS, pargs);
+						//print("Setting previousState to: " + pState + " in msgGotGlass");
+						previousState = pState;
+						pState = PopupState.WAITING_OFFLOAD;
+					}
+					mg.state = GlassState.FINISHED;
+					stateChanged();
+				}
+			}
+		}
+	}
+
+	/**
+	 * Message received from the next component when the Popup is holding a piece of glass and waiting to send it
+	 */
+	public void msgGetGlass() {
+		print(" Received msgGetGlass from " + nextAgent.getName() + " in state: " + pState);
+		if(pState == PopupState.WAITING_FOR_NEXT){
+			pState = previousState;
+		}
+		// This is OK because only one piece will ever be waiting at any given moment
+		synchronized(myGlass) {
+			for(MyGlass mg: myGlass) {
+				if(mg.state == GlassState.ON_HOLD) {
+					mg.state = GlassState.EXIT;
+				}
+			}
+		}
+		stateChanged();
+	}
+
+	/**
+	 * Message sent from the next component to tell the Popup that it can't accept glass
+	 * This should set the Popup into a WAITING state and set the glass's state to ON_HOLD
+	 * and effectively shut down the Popup to wait for the msgGetGlass call
+	 * @param g
+	 */
+	public void msgWaitToSendGlass(Glass g) {
+		print("Received msgWaitToSendGlass for piece: " + g.toString());
+		synchronized(myGlass) {
+			for(MyGlass mg: myGlass) {
+				if(mg.glass.equals(g)) {
+					mg.state = GlassState.ON_HOLD;
+					/*print("Setting previousState to: " + pState + " in msgWaitToSendGlass");
+					previousState = pState;
+					pState = PopupState.WAITING_FOR_NEXT;	// Can’t move without passing glass on
+					ALREADY WAITING TO SEND GLASS
+					*/
+					stateChanged();
+				}
+			}
+		}
+	}
+	
+	/**
+	 * Message from the Robot telling the Popup that it is currently working on a piece
+	 * of Glass
+	 * @param r
+	 */
+	public void msgWorkstationFull(RobotAgentDJ r) {
+		//print("Got msgWorkstationFull from " + r.getName());
+		synchronized(myRobots) {
+			for(MyRobot mr: myRobots) {
+				if(mr.robot.equals(r)) {
+					mr.busy = true;
+				}
+			}
+		}
+		stateChanged();
+	}
+	
+	/**
+	 * Message from the Robot telling the Popup that it has a free workstation
+	 * @param r
+	 */
+	public void msgWorkstationIdle(RobotAgentDJ r) {
+		//print("Got msgWorkstationIdle from " + r.getName());
+		synchronized(myRobots) {
+			for(MyRobot mr: myRobots) {
+				if(mr.robot.equals(r)) {
+					mr.busy = false;
+				}
+			}
+		}
+		stateChanged();
+	}
+	
+	/*
+	 * 	{ {=============================================} }
+	 * 	{ {												} }
+	 * 	{ {			TRANSDUCER (GUI)					} }
+	 * 	{ {												} }
+	 * 	{ {=============================================} }
+	 */
+	
+	public void eventFired(TChannel channel, TEvent event, Object[] args) {
+		if(event == TEvent.POPUP_GUI_LOAD_FINISHED) {
+			if((Integer)args[0] == popupID) {
+				//print("Got event POPUP_GUI_LOAD_FINISHED");
+				mainSensor.activate();	// On-popup sensor activated by GUI call
+				pState = previousState;
+				stateChanged();
+			}
+		}
+		else if(event == TEvent.POPUP_GUI_RELEASE_FINISHED) {
+			if((Integer)args[0] == popupID) {
+				//print("Got event POPUP_GUI_RELEASE_FINISHED");
+				mainSensor.deactivate();
+				pState = previousState;
+				stateChanged();
+			}
+		}
+		else if(event == TEvent.POPUP_GUI_MOVED_DOWN) {
+			if((Integer)args[0] == popupID) {
+				//print("Got event POPUP_GUI_MOVED_DOWN");
+				pState = PopupState.LOWERED;
+				stateChanged();
+			}
+		}
+		else if(event == TEvent.POPUP_GUI_MOVED_UP) {
+			if((Integer)args[0] == popupID) {
+				//print("Got event POPUP_GUI_MOVED_UP");
+				pState = PopupState.RAISED;
+				stateChanged();
+			}
+		}
+		else if(event == TEvent.WORKSTATION_LOAD_FINISHED) {
+			synchronized(myRobots) {
+				for(MyRobot mr: myRobots) {
+					if(mr.robot.getID() == (Integer)args[0]) {
+						//print("Got event WORKSTATION_LOAD_FINISHED");
+						// Mark flag okayToGoIdle
+						okayToGoIdle = true;
+						mainSensor.deactivate();
+						stateChanged();
+					}
+				}
+			}
+		}
+	}
+
+	/*
+	 * 	{ {=============================================} }
+	 * 	{ {												} }
+	 * 	{ {			SCHEDULER							} }
+	 * 	{ {												} }
+	 * 	{ {=============================================} }
+	 */
+	
+	/** Scheduler */
+	public boolean pickAndExecuteAnAction() {
+		/*print("Glass list contains: " + myGlass.size() + " in state: " + pState + " with mainSensor at: " + mainSensor.isActivated());
+		synchronized(myGlass) {
+			for(MyGlass mg: myGlass) {
+				System.out.println("\t" + mg.glass.getName() + " with state " + mg.state);
+			}
+		}*/
+		
+		synchronized(myGlass) {
+			for(MyGlass mg: myGlass) {
+				if(mg.state == GlassState.CANT_ACCEPT) {
+					rejectGlass(mg);
+					return true;
+				}
+			}
+		}
+		
+		synchronized(myGlass) {
+			for(MyGlass mg: myGlass) {
+				if(mg.state == GlassState.FINISHED) {
+					removeGlass(mg);
+					return true;
+				}
+			}
+		}
+		
+		if(pState != PopupState.WAITING_FOR_NEXT) {
+			synchronized(myGlass) {
+				for(MyGlass mg: myGlass) {
+					if(mg.state == GlassState.QUEUED || mg.state == GlassState.NEEDS_WORK) {
+						if(pState == PopupState.LOWERED && !mainSensor.isActivated()) {
+							acceptGlass(mg);
+							return true;
+						}
+					}
+				}
+			}
+			
+			synchronized(myGlass) {
+				for(MyGlass mg: myGlass) {
+					if(mg.state == GlassState.EXIT) {
+						if(pState == PopupState.LOWERED && mainSensor.isActivated()) {
+							if(nextAgent instanceof ConveyorAgentJT && nextAgentReady || nextAgentReady) {
+								sendGlass(mg);
+								return true;
+							}
+						}
+					}
+				}
+			}
+			
+			synchronized(myGlass) {
+				for(MyGlass mg: myGlass) {
+					if(mg.state == GlassState.DONE) {
+						if((pState == PopupState.LOWERED || pState == PopupState.RAISED) && (!mainSensor.isActivated() || retrieving)) {
+							retrieveGlass(mg);
+							return true;
+						}
+						else if(mainSensor.isActivated() && !retrieving) {
+							rejectGlass(mg);
+							return true;
+						}
+					}
+					else if(mg.state == GlassState.WAITING_DONE) {
+						if((pState == PopupState.LOWERED || pState == PopupState.RAISED) && (!mainSensor.isActivated() || retrieving)) {
+							retrieveGlass(mg);
+							return true;
+						}
+					}
+				}
+			}
+			
+			synchronized(myGlass) {
+				for(MyGlass mg: myGlass) {
+					if(mg.state == GlassState.ON_POPUP_FOR_WORK) {
+						if((pState == PopupState.LOWERED || pState == PopupState.RAISED) && mainSensor.isActivated()) {
+							workOnGlass(mg);
+							return true;
+						}
+					}
+				}
+			}
+			
+			synchronized(myGlass) {
+				for(MyGlass mg: myGlass) {
+					if(mg.state == GlassState.WAITING) {
+						if((pState == PopupState.LOWERED || pState == PopupState.RAISED) && !mainSensor.isActivated()) {
+							getWaitingGlass(mg);
+							return true;
+						}
+					}
+				}
+			}
+			
+			synchronized(myGlass) {
+				for(MyGlass mg: myGlass) {	
+					if(mg.state == GlassState.WAITING_FOR_WORK) {
+						if(pState == PopupState.LOWERED || pState == PopupState.RAISED && !mainSensor.isActivated()) {
+							synchronized(myRobots) {
+								for(MyRobot mr: myRobots) {
+									if(!mr.busy){
+										getWaitingGlass(mg);
+										return true;
+									}
+								}
+							}
+						}
+					}
+				}
+			}	// End of myGlass synchronized block
+		}
+
+		if(pState == PopupState.RAISED && !mainSensor.isActivated() && okayToGoIdle) {
+			goIdle();
+			return true;
+		}
+		
+		return false;
+	}
+	
+	/*
+	 * 	{ {=============================================} }
+	 * 	{ {												} }
+	 * 	{ {			ACTIONS								} }
+	 * 	{ {												} }
+	 * 	{ {=============================================} }
+	 */
+	
+	/**
+	 * Accepts the glass from the previous component in the line in two stages
+	 * 1. If the Popup is not lowered, make the GUI call to lower it
+	 * 2. If the Popup is lowered, send msgGotGlass, set the Popup state to MOVING (?)
+	 * 	  and changes the glass state depending on if the Glass needs work or not
+	 * @param mg
+	 */
+	private void acceptGlass(MyGlass mg) {
+		print("Executing acceptGlass for piece: " + mg.glass.toString() + " in state " + pState);
+		if(pState != PopupState.LOWERED) {
+			myTransducer.fireEvent(TChannel.POPUP, TEvent.POPUP_DO_MOVE_DOWN, pargs);
+			pState = PopupState.MOVING;
+			return;
+		}
+		mainSensor.activate();
+		mg.sender.msgGotGlass(this, mg.glass);	// Remove glass from sender’s arraylist
+		//print("Setting previousState to: " + pState + " in acceptGlass");
+		previousState = pState;
+
+		pState = PopupState.MOVING;
+		
+		if(mg.state == GlassState.QUEUED){
+			mg.state = GlassState.EXIT;
+		}
+		else if(mg.state == GlassState.NEEDS_WORK) {
+			mg.state = GlassState.ON_POPUP_FOR_WORK;
+		}
+		stateChanged();
+	}
+	
+	/**
+	 * Takes glass to the workstation in two steps
+	 * 1. If the Popup is lowered, send the GUI a call to raise the Popup
+	 * 2. If the Popup is raised, find an idle Robot for the glass and send it msgHereIsGlass,
+	 *    set the Popup state to WAITING (for the Robot's response), and set okayToGoIdle
+	 *    to false so the action doesn't get interrupted
+	 * @param mg
+	 */
+	private void workOnGlass(MyGlass mg) {
+		print("Executing workOnGlass for piece: " + mg.glass.toString() + " in state " + pState);
+		if(pState != PopupState.RAISED) {
+			myTransducer.fireEvent(TChannel.POPUP, TEvent.POPUP_DO_MOVE_UP, pargs);
+			pState = PopupState.MOVING;
+			return;
+		}
+		synchronized(myRobots) {
+			for(MyRobot r: myRobots) {
+				if(!r.busy) {
+					r.robot.msgHereIsGlass(this, mg.glass);
+					//print("Setting previousState to: " + pState + " in workOnGlass");
+					previousState = pState;
+					pState = PopupState.WAITING_FOR_ROBOT;
+					okayToGoIdle = false;
+					stateChanged();
+					return;
+				}
+			}
+		}
+	}
+	
+	/**
+	 * Retrieves glass from the workstation in three steps
+	 * 1. If the Popup isn't raised, raise it
+	 * 2. If the Popup is raised and it has no glass on it, send the msgGotGlass and set 
+	 *    the retrieving boolean to true so the receipt isn't interrupted
+	 * 3. If the Popup is raised and has received the glass from the workstation, lower
+	 *    the GUI Popup and set the Glass's state to EXIT
+	 * @param mg
+	 */
+	private void retrieveGlass(MyGlass mg) {
+		print("Retrieving glass with pState == " + pState + " to retrieve glass: " + mg.glass.getName());
+		if(pState != PopupState.RAISED) {
+			myTransducer.fireEvent(TChannel.POPUP, TEvent.POPUP_DO_MOVE_UP, pargs);
+			pState = PopupState.MOVING;
+			return;
+		}
+		// After the popup is raised, move the glass onto the popup
+		else if(pState == PopupState.RAISED && !mainSensor.isActivated()) {
+			//print("Setting previousState to: " + pState + " in retrieveGlass");
+			previousState = pState;
+			pState = PopupState.MOVING;
+			mg.sender.msgGotGlass(this, mg.glass);
+			retrieving = true;
+			return;
+		}
+		// Get the glass from the WorkerAgent
+		else if(pState == PopupState.RAISED && mainSensor.isActivated() && retrieving) {
+			mg.state = GlassState.EXIT;
+			myTransducer.fireEvent(TChannel.POPUP, TEvent.POPUP_DO_MOVE_DOWN, pargs);
+			pState = PopupState.MOVING;
+			retrieving = false;
+			stateChanged();
+		}
+	}
+	
+	/**
+	 * Sends the glass to the next component in two stages
+	 * 1. If the Popup isn't lowered, lower it with the GUI call
+	 * 2. If the Popup is lowered, send msgHereIsGlass to the next component and send the Popup
+	 *    a message to RELEASE_GLASS to the next Agent and mark it as FINISHED to be deleted
+	 * @param mg
+	 */
+	private void sendGlass(MyGlass mg) {
+		print("Attempting to sendGlass piece: " + mg.glass.toString() + " to " + nextAgent.getName() + " in state " + pState);
+		if(pState != PopupState.LOWERED) {
+			myTransducer.fireEvent(TChannel.POPUP, TEvent.POPUP_DO_MOVE_DOWN, pargs);
+			pState = PopupState.MOVING;
+			return;
+		}
+		nextAgent.msgHereIsGlass(this, mg.glass);
+		//print("Setting previousState to: " + pState + " in sendGlass");
+		previousState = pState;
+		pState = PopupState.WAITING_FOR_NEXT;	// Wait until reply is received
+		
+		// Integration with JT -- acts as if msgGotGlass is automatically sent
+		if(nextAgent instanceof ConveyorAgentJT) {
+			myTransducer.fireEvent(TChannel.POPUP, TEvent.POPUP_RELEASE_GLASS, pargs);
+			mg.state = GlassState.FINISHED;
+			nextAgentReady = false;
+		}
+		
+		stateChanged();
+	}
+	
+	/**
+	 * Removes glass from the glass queue
+	 * @param mg
+	 */
+	private void removeGlass(MyGlass mg) {
+		myGlass.remove(mg);
+		stateChanged();
+	}
+	
+	/**
+	 * If this Agent is busy/full of Glass, send the component attempting to send glass a msgWaitToSendGlass
+	 * and change the glass's state to WAITING_FOR_WORK, WAITING (to pass through), or WAITING_DONE (waiting
+	 * to exit)
+	 * @param mg
+	 */
+	private void rejectGlass(MyGlass mg) {
+		print("Rejecting glass piece: " + mg.glass.toString() + " from sender: " + mg.sender.getName());
+		mg.sender.msgWaitToSendGlass(mg.glass);
+		if(mg.state == GlassState.CANT_ACCEPT) {
+			mg.state = GlassState.WAITING_FOR_WORK;	// Should be valid because CANT_ACCEPT only happens when it needs work && workstations are full
+		}
+		else if(mg.sender instanceof RobotAgentDJ) {
+			mg.state = GlassState.WAITING_DONE;
+		}
+		else {
+			mg.state = GlassState.WAITING;
+		}
+		stateChanged();
+	}
+
+	/**
+	 * Get glass from Agent waiting for the Popup in two steps
+	 * 1. Raise (if Robot) or Lower (if Conveyor) the Popup as appropriate with a GUI call
+	 * 2. Send msgGetGlass to the Glass's sender and set the Popup state to WAITING (for response)
+	 * @param mg
+	 */
+	private void getWaitingGlass(MyGlass mg) {
+		print("Going to get glass piece: " + mg.glass.toString() + " from " + mg.sender.getName());
+		if(mg.sender instanceof RobotAgentDJ && pState != PopupState.RAISED) {
+			myTransducer.fireEvent(TChannel.POPUP, TEvent.POPUP_DO_MOVE_UP, pargs);
+			pState = PopupState.MOVING;
+			//mg.state = GlassState.EXIT; TAKEN OUT TO FIX MASSIVE BUG
+			return;
+		}
+		if(mg.sender instanceof ConveyorAgentDJ && pState != PopupState.LOWERED) {
+			myTransducer.fireEvent(TChannel.POPUP, TEvent.POPUP_DO_MOVE_DOWN, pargs);
+			pState = PopupState.MOVING;
+			/*if(mg.state == GlassState.WAITING_FOR_WORK) {		TAKEN OUT TO FIX MASSIVE BUG
+				mg.state = GlassState.ON_POPUP_FOR_WORK;
+			}
+			else {
+				mg.state = GlassState.EXIT;
+			}*/ 
+			return;
+		}
+		
+		mg.sender.msgGetGlass();
+		if(mg.sender instanceof RobotAgentDJ) {
+			//print("Setting previousState to: " + pState + " in getWaitingGlass");
+			previousState = pState;
+			pState = PopupState.WAITING_FOR_ROBOT;
+		}
+		else if(mg.sender instanceof ConveyorAgentDJ) {
+			//print("Setting previousState to: " + pState + " in getWaitingGlass from Conveyor");
+			previousState = pState;
+			pState = PopupState.WAITING_FOR_PREV;
+		}
+		stateChanged();
+	}
+
+	/** Lowers the Popup to an IDLE state if there are no other actions */
+	private void goIdle() {
+		myTransducer.fireEvent(TChannel.POPUP, TEvent.POPUP_DO_MOVE_DOWN, pargs);
+		pState = PopupState.MOVING;
+		stateChanged();
+	}
+	
+	/*
+	 * 	{ {=============================================} }
+	 * 	{ {												} }
+	 * 	{ {			EXTRA								} }
+	 * 	{ {												} }
+	 * 	{ {=============================================} }
+	 */
+	
+	/** Returns this Agent's name */
+	public String getName() {
+		return this.name;
+	}
+	
+	/** Returns this Agent's ID (as corresponds to the GUI component) */
+	public int getID() {
+		return this.popupID;
+	}
+	
+	/** Returns this Agent's Popup State */
+	public String getState() {
+		return this.pState.toString();
+	}
+	
+	/** Returns the number of Glass references contained at the time of the call */
+	public int getNumGlass() {
+		return myGlass.size();
+	}
+	
+	/**
+	 * Takes an integer i and returns the string form of the state of that piece of Glass
+	 * @param i
+	 * @return
+	 */
+	public String getMyGlassState(Glass g) {
+		synchronized(myGlass) {
+			for(MyGlass mg: myGlass) {
+				if(mg.glass.equals(g)) {
+					return mg.state.toString();
+				}
+			}
+		}
+		return "ERROR";
+	}
+	
+	/**
+	 * Takes integer i and returns the string name of the sender of that piece of Glass
+	 * @param i
+	 * @return
+	 */
+	public String getMyGlassSender(Glass g) {
+		synchronized(myGlass) {
+			for(MyGlass mg: myGlass) {
+				if(mg.glass.equals(g)) {
+					return mg.sender.getName();
+				}
+			}
+		}
+		return "ERROR";
+	}
+	
+	/**
+	 * Returns the parameter RobotAgentDJ's status (true=busy, false=idle)
+	 * @param r
+	 * @return
+	 */
+	public boolean getMyRobotStatus(RobotAgentDJ r) {
+		synchronized(myRobots) {
+			for(MyRobot mr: myRobots) {
+				if(mr.robot.equals(r)) {
+					return mr.busy;
+				}
+			}
+		}
+		return true;
+	}
+	
+	/**
+	 * Sets the workstation types associated with this Popup
+	 * @param wt
+	 */
+	public void setWorkstationType(ComponentOperations wt) {
+		myWorkstationType = wt;
+	}
+	
+	/**
+	 * Sets the Agent that this Agent will send the glass to next
+	 * @param next
+	 */
+	public void setNextAgent(IGlassLineAgent next) {
+		nextAgent = next;
+	}
+	
+	/**
+	 * Adds a Robot/Workstation to this Popup's list of workers
+	 * @param wr
+	 * @param busy
+	 */
+	public void addRobot(RobotAgentDJ wr, boolean busy) {
+		myRobots.add(new MyRobot(wr, busy));
+	}
+	
+	/**
+	 * For testing purposes.  External function to add a new piece of Glass to myGlass
+	 * @param g 
+	 * @param sta
+	 * @param sen
+	 */
+	public void addGlass(Glass g, GlassState sta, IGlassLineAgent sen) {
+		myGlass.add(new MyGlass(g, sta, sen));
+	}
+	
+	/**
+	 * Sets transducer and registers the popup to the appropriate channel
+	 * @param t Transducer passed in
+	 */
+	public void setTransducer(Transducer t) {
+		this.myTransducer = t;
+		myTransducer.register(this, TChannel.ALL_AGENTS);
+		myTransducer.register(this, TChannel.POPUP);
+		
+		if(myWorkstationType == ComponentOperations.CROSSSEAMER) {
+			myChannel = TChannel.CROSS_SEAMER;
+		}
+		else if(myWorkstationType == ComponentOperations.DRILL) {
+			myChannel = TChannel.DRILL;
+		}
+		else if(myWorkstationType == ComponentOperations.GRINDER) {
+			myChannel = TChannel.GRINDER;
+		}
+		myTransducer.register(this, myChannel);
+	}
+	
+	/*
+	*		{ {=============================================} }
+	*		{ {												} }
+	*		{ {			INTEGRATION MESSAGES				} }
+	*		{ {												} }
+	*		{ {=============================================} }
+	*/
+	
+	// Unused.  Implemented to support integration with ShuttleAgent
+	public void msgConveyorReady() {}
+	
+	/** Received from the ConveyorAgentJT letting the Popup know that it can send glass */
+	public void msgNextComponentReady() {
+		print("received msgNextComponenentReady from " + nextAgent.getName());
+		nextAgentReady = true;
+		stateChanged();
+	}
+}

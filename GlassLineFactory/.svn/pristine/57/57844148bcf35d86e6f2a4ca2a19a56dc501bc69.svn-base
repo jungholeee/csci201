@@ -1,0 +1,82 @@
+package engine.agent;
+
+import transducer.*;
+
+public class EndSensorPostOvenAgent extends Agent implements TReceiver{
+
+	public boolean GlassOnSensor;
+	public boolean PreviouslyGlassOnSensor;
+	public Transducer transducer;
+	public OvenAgent oven;
+	public EndConveyorAgent conveyor;	// OvenConveyor2
+	public gui.panels.DisplayPanel guiDisplayPanel;
+	public int index;
+	
+	public EndSensorPostOvenAgent(String name){
+		super(name);
+		GlassOnSensor = false;
+		PreviouslyGlassOnSensor = false;
+	}
+	
+	public EndSensorPostOvenAgent(Transducer t, OvenAgent oven, EndConveyorAgent c, int ind, gui.panels.DisplayPanel gdp){
+		GlassOnSensor = false;
+		PreviouslyGlassOnSensor = false;
+		this.oven = oven;
+		conveyor = c;
+		transducer = t;
+		t.register(this, TChannel.ALL_AGENTS);
+		t.register(this, TChannel.SENSOR);
+		this.index = ind;
+		this.guiDisplayPanel = gdp;
+	}
+	
+	public void setEndSensorPostOvenAgent(Transducer t, OvenAgent o, EndConveyorAgent c, int ind, gui.panels.DisplayPanel gdp){
+		transducer = t;
+		t.register(this, TChannel.ALL_AGENTS);
+		t.register(this, TChannel.SENSOR);
+		oven = o;
+		conveyor = c;
+		this.index = ind;
+		this.guiDisplayPanel = gdp;
+	}
+	
+	
+	@Override
+	public void eventFired(TChannel channel, TEvent event, Object[] args) {
+		// TODO Auto-generated method stub
+		if(channel==TChannel.SENSOR && args[0]==(Object)index){
+			if(event==TEvent.SENSOR_GUI_PRESSED) this.msgGlassOnSensor();
+			if(event==TEvent.SENSOR_GUI_RELEASED) this.msgGlassOffSensor();
+		}	
+	}
+
+	@Override
+	public boolean pickAndExecuteAnAction() {
+		// TODO Auto-generated method stub
+		if(PreviouslyGlassOnSensor && !GlassOnSensor){
+	        //AlertShuttle();
+	        conveyor.msgGlassOffEntrySensor();
+	        PreviouslyGlassOnSensor = GlassOnSensor;
+	        return false;
+	    }
+	    if(!GlassOnSensor){PreviouslyGlassOnSensor = GlassOnSensor; return false;}
+	    PreviouslyGlassOnSensor = GlassOnSensor;
+	    return true;
+	}
+	
+	public void msgGlassOnSensor(){ //From Transducer
+	    GlassOnSensor = true;
+	    stateChanged();
+	    print("Glass On Sensor");
+	}
+	public void msgGlassOffSensor(){ //From Transducer
+	    GlassOnSensor = false;
+	    stateChanged();
+	    print("Glass Off Sensor");
+	}
+	
+	
+	
+	
+
+}

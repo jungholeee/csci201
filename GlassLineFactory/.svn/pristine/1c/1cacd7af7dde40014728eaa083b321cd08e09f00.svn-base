@@ -1,0 +1,77 @@
+package engine.agent;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import shared.Glass;
+import transducer.TChannel;
+import transducer.TEvent;
+import transducer.TReceiver;
+import transducer.Transducer;
+
+import engine.agent.Agent;
+
+public class EndTruckAgent extends Agent implements TReceiver{
+	
+	public Transducer transducer;
+	public List<Glass> TruckLoad;
+	public int maxTruckLoad;
+	public EndRobotAgent mytruckrobot;
+	public gui.panels.DisplayPanel guiDisplayPanel;
+	public int index;
+	
+	// for main
+	public EndTruckAgent(String name){
+		super(name);
+		TruckLoad = new ArrayList<Glass>();
+		maxTruckLoad = 20;
+	}
+	// for main
+	public void setEndTruckAgent(Transducer t, EndRobotAgent tr, int ind, gui.panels.DisplayPanel gdp){
+		transducer = t;
+		t.register(this, TChannel.ALL_AGENTS);
+		t.register(this, TChannel.TRUCK);
+		mytruckrobot = tr;
+		this.index = ind;
+		this.guiDisplayPanel = gdp;
+	}
+	// for JUnit test
+	public EndTruckAgent(Transducer t, EndRobotAgent tr){
+		TruckLoad = new ArrayList<Glass>();
+		maxTruckLoad = 20;
+		mytruckrobot = tr;
+		transducer = t;
+		t.register(this, TChannel.ALL_AGENTS);
+		t.register(this, TChannel.TRUCK);
+	}
+	
+	public void msgHereIsGlass(Glass g){ //From TruckRobot
+    	TruckLoad.add(g);
+    	//Object[] args = new Object[1];
+	    //args[0] = 0;
+	    //transducer.fireEvent(TChannel.TRUCK, TEvent.TRUCK_DO_EMPTY, args);
+    	print("Received glass from TruckRobot, new size: " + TruckLoad.size());
+    	if(TruckLoad.size()>=maxTruckLoad) DeliverLoad();
+    	stateChanged();
+	}
+	
+	public void DeliverLoad(){
+	    mytruckrobot.msgTruckOutForDelivery();
+	    TruckLoad.clear();
+	    Object[] args = new Object[1];
+	    args[0] = 0;
+	    transducer.fireEvent(TChannel.TRUCK, TEvent.TRUCK_DO_EMPTY, args);
+	}
+
+	@Override
+	public boolean pickAndExecuteAnAction() {	
+		return false;
+	}
+	@Override
+	public void eventFired(TChannel channel, TEvent event, Object[] args) {
+		// TODO Auto-generated method stub
+		if(channel==TChannel.TRUCK){
+			if(event==TEvent.TRUCK_GUI_EMPTY_FINISHED || event==TEvent.TRUCK_GUI_LOAD_FINISHED) mytruckrobot.msgTruckReadyForGlass();
+		}
+	}
+}

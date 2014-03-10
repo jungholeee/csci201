@@ -1,0 +1,24 @@
+README
+
+TO RUN:
+1. compile in eclipse
+2. run gui.drivers.FactoryDriver.java
+3. add glass when the previous piece of glass is at the first exit sensor
+
+NOTES/ KNOWN BUGS:
+1. leave a little space before adding another piece of glass
+2. if you addGlass really fast it stops on the first conveyor
+
+DEFAULT GLASS:
+	To add a glass that goes through all the workstations hit ADD GLASS
+	We can have multiple pieces of glass at once either spaced out or close together
+CUSTOM GLASS:
+	To add a custom glass choose the different optional workstations you want it to go through
+		 click ADD CUSTOM GLASS and that glass will go through the specified workstations
+	We can have multiple pieces of glass at once either spaced out or close together
+	
+BREAK DOWN OF WORK:
+	Brooke & Cameron: bin, conveyor 0-1, cutter, custom glass panel
+	Jessica & Dylan: conveyor 5-8, offline workstations, washer, popup
+	Jack & Tim: shuttles, breakout, manual breakout, washer, UVLamp, conveyor 2-4, 9-12
+	Justin & Jungho: conveyor 13-14, oven, truck 

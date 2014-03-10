@@ -1,0 +1,254 @@
+
+package gui.panels.subcontrolpanels;
+
+import gui.components.GUIGlass;
+import gui.panels.ControlPanel;
+
+import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Font;
+import java.awt.GridLayout;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.event.ItemEvent;
+import java.awt.event.ItemListener;
+import java.util.ArrayList;
+
+import javax.swing.BoxLayout;
+import javax.swing.JButton;
+import javax.swing.JCheckBox;
+import javax.swing.JPanel;
+import javax.swing.SwingConstants;
+
+import shared.Glass;
+import shared.enums.ComponentOperations;
+
+/**
+ * The GlassSelectPanel class contains buttons allowing the user to select what
+ * type of glass to produce.
+ */
+@SuppressWarnings("serial")
+public class GlassSelectPanel extends JPanel implements ItemListener
+{
+	/** The ControlPanel this is linked to */
+	private ControlPanel parent;
+	
+	/** The panels for the glass recipe & add glass*/
+	JPanel addGlassPanel, customGlassPanel; //panel for the add Glass button
+	JPanel recipePanel, recipeL, recipeR; //panel with check boxes for recipe of glass for which stations to go through
+	
+	/**The buttons for a piece of glass*/
+	JButton addGlassButton, addCustomGlassButton;
+	
+	/**The check boxes for a recipe*/ 
+	//options are: DRILL, GRINDER, CROSS_SEAMER, MANUAL_BREAKOUT, 
+	JCheckBox drillCheckbox, grinderCheckbox, crossSeamerCheckbox, manualBreakoutCheckbox;
+	
+	
+	ArrayList<ComponentOperations> operationsOnPart;
+	
+	
+	private int count = 0;
+
+	/**
+	 * Creates a new GlassSelect and links it to the control panel
+	 * @param cp
+	 *        the ControlPanel linked to it
+	 */
+	public GlassSelectPanel(ControlPanel cp)
+	{
+		parent = cp;
+		this.setBackground(Color.black);
+		this.setForeground(Color.black);
+		//array for the operations on a custom glass
+		operationsOnPart = new ArrayList<ComponentOperations>();
+		
+		//initialize buttons
+		//button far glass with all stations
+		addGlassButton = new JButton("Add Glass");
+		addGlassButton.setBackground(Color.white);
+		addGlassButton.setForeground(Color.black);
+		addGlassButton.setFont(new Font("SansSerif", Font.PLAIN, 18));
+		addGlassButton.setHorizontalAlignment(SwingConstants.CENTER);
+		addGlassButton.setOpaque(true);
+		addGlassButton.setBorderPainted(false);
+		
+		//button for glass with specified recipie
+		addCustomGlassButton = new JButton("Add Custom Glass");
+		addCustomGlassButton.setBackground(Color.white);
+		addCustomGlassButton.setForeground(Color.black);
+		addCustomGlassButton.setFont(new Font("SansSerif", Font.PLAIN, 18));
+		addCustomGlassButton.setHorizontalAlignment(SwingConstants.CENTER);
+		addCustomGlassButton.setOpaque(true);
+		addCustomGlassButton.setBorderPainted(false);
+		
+		//initalize checkboxes
+		drillCheckbox = new JCheckBox("Drill");
+		grinderCheckbox = new JCheckBox("Grinder");
+		crossSeamerCheckbox = new JCheckBox("Cross Seamer");
+		manualBreakoutCheckbox = new JCheckBox("Manual Breakout");
+		
+		// manage layout
+		this.setLayout(new BorderLayout());
+		addGlassPanel = new JPanel();
+		addGlassPanel.setLayout(new BoxLayout(addGlassPanel, BoxLayout.Y_AXIS));
+		customGlassPanel = new JPanel();
+		customGlassPanel.setLayout(new BoxLayout(customGlassPanel, BoxLayout.Y_AXIS));
+		recipePanel = new JPanel(); //recipe panel with columns
+		recipePanel.setLayout(new GridLayout(1,2));
+		recipeL = new JPanel(); //left side of the recipe panel
+		recipeL.setLayout(new BoxLayout(recipeL, BoxLayout.Y_AXIS));
+		recipeR = new JPanel(); //right side of the recipe panel
+		recipeR.setLayout(new BoxLayout(recipeR, BoxLayout.Y_AXIS));
+
+		// set up buttons
+		addGlassButton.addActionListener(new AddGlassButtonListener());
+		addGlassButton.setAlignmentX(CENTER_ALIGNMENT);
+		
+		addCustomGlassButton.addActionListener(new CustomGlassButtonListener());
+		addCustomGlassButton.setAlignmentX(CENTER_ALIGNMENT);
+		
+		
+		//set up check boxes
+		drillCheckbox.setBackground(Color.black);
+		drillCheckbox.setForeground(Color.white);
+		drillCheckbox.addItemListener(this);
+		
+		grinderCheckbox.setBackground(Color.black);
+		grinderCheckbox.setForeground(Color.white);
+		grinderCheckbox.addItemListener(this);
+		
+		crossSeamerCheckbox.setBackground(Color.black);
+		crossSeamerCheckbox.setForeground(Color.white);
+		crossSeamerCheckbox.addItemListener(this);
+		
+		manualBreakoutCheckbox.setBackground(Color.black);
+		manualBreakoutCheckbox.setForeground(Color.white);
+		manualBreakoutCheckbox.addItemListener(this);
+		
+		//adding components to addGlassPanel
+		addGlassPanel.add(addGlassButton);
+		customGlassPanel.add(addCustomGlassButton);
+		
+		//adding components to recipe Panel
+		recipeL.add(drillCheckbox);
+		recipeL.add(grinderCheckbox);
+		recipeR.add(crossSeamerCheckbox);
+		recipeR.add(manualBreakoutCheckbox);
+		recipePanel.add(recipeL);
+		recipePanel.add(recipeR);
+		
+		//adding panels to the glassSelect Panel
+		this.add(addGlassPanel, BorderLayout.PAGE_START);
+		this.add(recipePanel, BorderLayout.CENTER);
+		this.add(customGlassPanel, BorderLayout.PAGE_END);
+	
+		
+	}
+
+	public class AddGlassButtonListener implements ActionListener
+	{
+		public void actionPerformed(ActionEvent ae)
+		{
+			System.out.println("Control Panel ADD GLASS button clicked.");
+			if (parent.getTransducer() == null)
+			{
+				System.out.println("No transducer connected!");
+			}
+			else
+			{
+				ArrayList<ComponentOperations> co = new ArrayList<ComponentOperations>();
+				addComponents(co);
+				Glass ag = new Glass("Glass" + count, new GUIGlass(), co);
+				parent.getGuiParent().getStockPileRobot().msgAddToStockPile(ag);
+				//parent.getTransducer().fireEvent(TChannel.BIN, TEvent.BIN_CREATE_PART, args);
+				count++;
+			}
+		}
+	}
+	
+	public class CustomGlassButtonListener implements ActionListener
+	{
+		public void actionPerformed(ActionEvent ae)
+		{
+			System.out.println("Control Panel ADD CUSTOM GLASS button clicked.");
+			if (parent.getTransducer() == null)
+			{
+				System.out.println("No transducer connected!");
+			}
+			else
+			{
+				if(operationsOnPart.size() <= 6) {
+					addOnlineComponents(operationsOnPart);
+				}
+				Glass ag = new Glass("Glass" + count, new GUIGlass(), operationsOnPart);
+				parent.getGuiParent().getStockPileRobot().msgAddToStockPile(ag);
+				//parent.getTransducer().fireEvent(TChannel.BIN, TEvent.BIN_CREATE_PART, args);
+				count++;
+			}
+		}
+	}
+	
+	
+    /** Listens to the check boxes. */
+    public void itemStateChanged(ItemEvent e) {
+
+    	Object source = e.getItemSelectable();
+ 
+        if (source == drillCheckbox && e.getStateChange() == ItemEvent.SELECTED) {
+        	operationsOnPart.add(ComponentOperations.DRILL);
+        } else if (source == grinderCheckbox && e.getStateChange() == ItemEvent.SELECTED) {
+        	operationsOnPart.add(ComponentOperations.GRINDER);
+        } else if (source == manualBreakoutCheckbox && e.getStateChange() == ItemEvent.SELECTED) {
+        	operationsOnPart.add(ComponentOperations.MANUALBREAKOUT);
+        } else if (source == crossSeamerCheckbox && e.getStateChange() == ItemEvent.SELECTED) {
+        	operationsOnPart.add(ComponentOperations.CROSSSEAMER);
+        }
+        
+        
+        if (source == drillCheckbox && e.getStateChange() == ItemEvent.DESELECTED) {
+        	operationsOnPart.remove(ComponentOperations.DRILL);
+        } else if (source == grinderCheckbox && e.getStateChange() == ItemEvent.DESELECTED) {
+        	operationsOnPart.remove(ComponentOperations.GRINDER);
+        } else if (source == manualBreakoutCheckbox && e.getStateChange() == ItemEvent.DESELECTED) {
+        	operationsOnPart.remove(ComponentOperations.MANUALBREAKOUT);
+        } else if (source == crossSeamerCheckbox && e.getStateChange() == ItemEvent.DESELECTED) {
+        	operationsOnPart.remove(ComponentOperations.CROSSSEAMER);
+        }
+ 
+    }
+	// adds all online necessary components to glass
+	// otherwise adds all as default
+	private void addOnlineComponents(ArrayList<ComponentOperations> co)
+	{
+		co.add(ComponentOperations.BREAKOUT);
+		co.add(ComponentOperations.CUTTER);
+		co.add(ComponentOperations.OVEN);
+		co.add(ComponentOperations.PAINT);
+		co.add(ComponentOperations.UVLAMP);
+		co.add(ComponentOperations.WASHER);
+	}
+	// adds selected components to the glass
+	// otherwise adds all as default
+	private void addComponents(ArrayList<ComponentOperations> co)
+	{
+		// only have default for now
+		co.add(ComponentOperations.BREAKOUT);
+		co.add(ComponentOperations.CROSSSEAMER);
+		co.add(ComponentOperations.CUTTER);
+		co.add(ComponentOperations.DRILL);
+		co.add(ComponentOperations.GRINDER);
+		co.add(ComponentOperations.OVEN);
+		co.add(ComponentOperations.PAINT);
+		co.add(ComponentOperations.UVLAMP);
+		co.add(ComponentOperations.WASHER);
+	}
+	/**
+	 * Returns the parent panel
+	 * @return the parent panel
+	 */
+	public ControlPanel getGuiParent()
+	{
+		return parent;
+	}
+}

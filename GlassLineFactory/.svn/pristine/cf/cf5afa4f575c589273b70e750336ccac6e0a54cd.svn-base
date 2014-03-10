@@ -1,0 +1,86 @@
+package engine.agent;
+
+import shared.Glass;
+import transducer.*;
+import engine.agent.Agent;
+
+public class EndRobotAgent extends Agent implements TReceiver{
+
+	public boolean TruckReady;
+	public boolean PopupReady;
+	public Transducer transducer;
+	public Glass myglass;
+	public EndTruckAgent mytruck;
+	public EndPopupAgent mypopup;
+	public gui.panels.DisplayPanel guiDisplayPanel;
+	public int index;
+	
+	// for main
+	public EndRobotAgent(String name){
+		super(name);
+		TruckReady = false;
+		PopupReady = false;
+	}
+	// for main
+	public void setEndRobotAgent(Transducer t, Glass g, EndTruckAgent tr, EndPopupAgent popup, int ind, gui.panels.DisplayPanel gdp){
+		transducer = t;
+		t.register(this, TChannel.ALL_AGENTS);
+		myglass = g;
+		mytruck = tr;
+		mypopup = popup;
+		this.index = ind;
+		this.guiDisplayPanel = gdp;
+	}
+	// for JUnit test
+	public EndRobotAgent(Transducer t, Glass g, EndTruckAgent tr, EndPopupAgent popup){
+		TruckReady = false;
+		PopupReady = false;
+		myglass = g;
+		mytruck = tr;
+		mypopup = popup;
+		transducer = t;
+		t.register(this, TChannel.ALL_AGENTS);
+	}
+	
+	@Override
+	public boolean pickAndExecuteAnAction() {
+		if(myglass == null){
+	        mypopup.msgTRobotReadyForGlass();
+	        return false;
+	    }
+	    if(!TruckReady) return false;
+	    if(myglass != null && TruckReady){
+	        mytruck.msgHereIsGlass(myglass);
+	        this.TruckReady = false;
+	        myglass = null;
+	    }
+	    return true;
+	}
+	
+	public void msgHereIsGlass(Glass g){ //From TruckPopup
+		myglass = g;
+		stateChanged();
+		print("Received glass from Popup");
+	}
+
+    public void msgTruckReadyForGlass(){ //From Truck
+    	TruckReady = true;
+    	stateChanged();
+    	print("Truck ready/returned");
+    }
+
+    public void msgTruckOutForDelivery(){ //From Truck
+    	TruckReady = false;
+    	stateChanged();
+    	print("Truck Left for delivery");
+    }
+	@Override
+	public void eventFired(TChannel channel, TEvent event, Object[] args) {
+		// TODO Auto-generated method stub
+		
+	}
+	
+	
+	
+	
+}

@@ -1,0 +1,193 @@
+package engine.agent;
+
+import java.awt.ComponentOrientation;
+import java.util.Timer;
+import java.util.TimerTask;
+
+import shared.Glass;
+import shared.enums.ComponentOperations;
+import shared.enums.MachineType;
+import transducer.TChannel;
+import transducer.TEvent;
+import transducer.Transducer;
+
+public class ConveyorWorkstationJT extends Agent {
+	
+	//***** DATA *****
+
+	private Glass glass;
+	private ConveyorAgentJT prevConveyor;
+	private ConveyorAgentJT nextConveyor;
+	enum ConvWsState {PENDING, DONE_LOADING, DONE_PROCESSING, MOVING_OUT, MOVED_OUT};
+	private ConvWsState cWsState;
+	private boolean nextConveyorReady = false;
+	private boolean readyForGlass = true;
+	private TChannel myChannel;
+	private Timer timer = new Timer();
+	private ComponentOperations myOperation;
+	
+	//GUI Variables
+	private Transducer trans;
+	
+	public ConveyorWorkstationJT(Transducer t, String name, TChannel channel) {
+		super(name);
+		myChannel= channel;
+		this.trans = t;
+		trans.register(this, myChannel);
+		trans.register(this, TChannel.ALL_AGENTS);
+		trans.register(this, TChannel.SENSOR);
+		cWsState = ConvWsState.PENDING;
+		
+		//Set myOperation based on channel
+		if (channel == TChannel.BREAKOUT)
+			myOperation = ComponentOperations.BREAKOUT;
+		else if (channel == TChannel.MANUAL_BREAKOUT)
+			myOperation = ComponentOperations.MANUALBREAKOUT;
+		else if (channel == TChannel.WASHER)
+			myOperation = ComponentOperations.WASHER;
+		else if (channel == TChannel.PAINTER)
+			myOperation = ComponentOperations.PAINT;
+		else if (channel == TChannel.UV_LAMP)
+			myOperation = ComponentOperations.UVLAMP;
+	}
+
+	public void setNextConveyor(ConveyorAgentJT nextConveyor) {
+		this.nextConveyor = nextConveyor;
+	}
+	
+	public void setPrevConveyor(ConveyorAgentJT prevConveyor) {
+		this.prevConveyor = prevConveyor;
+	}
+	
+	//***** MESSAGES *****
+	
+	public void msgHereIsGlass(Glass glass) {
+		print("LOADING GLASS");
+		this.glass = glass;
+		cWsState = ConvWsState.PENDING;
+		stateChanged();
+	}
+	
+	public void msgDoneLoadingGlass() {
+		print ("received msgDoneLoadingGlass from GUI");
+		if (this.glass.getOperationsToPerform().contains(myOperation))
+			cWsState = ConvWsState.DONE_LOADING;
+		else 
+			cWsState = ConvWsState.DONE_PROCESSING;
+		stateChanged();
+	}
+	
+	public void msgDoneProcessingGlass() {
+		print("recieved msgDoneProcessingGlass from GUI");
+		cWsState = ConvWsState.DONE_PROCESSING;
+		stateChanged();
+	}
+	
+	public void msgNextConveyorReady() {
+		print("received msgNextConveyorReady from " + nextConveyor);
+		nextConveyorReady = true;
+		stateChanged();
+	}
+	
+	//***** SCHEUDLER *****
+	
+	public boolean pickAndExecuteAnAction() {
+		if (readyForGlass) {
+			if (myOperation != ComponentOperations.MANUALBREAKOUT || nextConveyorReady) {
+				prevConveyorImReady();
+				return true;
+			}	
+		}
+		if (cWsState == ConvWsState.DONE_LOADING && glass != null) {
+			processGlass();
+			return true;
+		}
+		if (cWsState == ConvWsState.DONE_PROCESSING && glass != null && nextConveyorReady) {
+			releaseGlass();
+			return true;
+		}
+		/**
+		 * @Brooke adding this in to prevent a race condition for the washergui overwriting
+		 * the glassPart
+		 */
+		if(cWsState == ConvWsState.MOVED_OUT)
+		{
+			finishRelease();
+			return true;
+		}
+		return false;
+	}
+	
+	//***** ACTIONS *****
+	
+	/**
+	 * @Brooke adding this in to prevent a race condition for the washergui overwriting
+	 * the glassPart
+	 */
+	private void finishRelease(){
+		cWsState = ConvWsState.PENDING;
+		readyForGlass = true;
+		glass = null;
+		stateChanged();
+	}
+	
+	private void prevConveyorImReady() {
+		print("informing " + prevConveyor + " that I'm ready to accept a glass panel");
+		prevConveyor.msgNextComponentReady();
+		readyForGlass = false;
+		stateChanged();
+	}
+	
+	private void processGlass() {
+		print("PROCESSING GLASS");
+		cWsState = ConvWsState.PENDING;
+		
+		//msg GUI to process glass
+		trans.fireEvent(myChannel, TEvent.WORKSTATION_DO_ACTION, null);
+		
+		stateChanged();
+	}
+	
+	private void releaseGlass() {
+		print("handing off processed glass to " + nextConveyor);
+		/**
+		 * @Brooke prevent a race condition for the washergui overwriting
+		 * the glassPart
+		 */
+		/*cWsState = ConvWsState.PENDING;
+		readyForGlass = true;*/
+		nextConveyorReady = false;
+		
+		//msg GUI to release glass
+		trans.fireEvent(myChannel, TEvent.WORKSTATION_RELEASE_GLASS, null);
+		
+		nextConveyor.msgHereIsGlass(glass);
+		/**
+		 * @Brooke prevent a race condition for the washergui overwriting
+		 * the glassPart
+		 */
+		this.cWsState = ConvWsState.MOVING_OUT;
+		//glass = null;
+		stateChanged();
+	}
+
+	public void eventFired(TChannel channel, TEvent event, Object[] args) {
+		if (channel == myChannel) {
+			if (event == TEvent.WORKSTATION_GUI_ACTION_FINISHED) {
+				this.msgDoneProcessingGlass();
+			}
+			else if (event == TEvent.WORKSTATION_LOAD_FINISHED) {
+				this.msgDoneLoadingGlass();
+			}
+			/**
+			 * @Brooke prevent race condition in washer
+			 */
+			else if(event == TEvent.WORKSTATION_RELEASE_FINISHED){
+				this.cWsState = ConvWsState.MOVED_OUT;
+				stateChanged();
+			}
+		}
+	}
+	
+}
+
